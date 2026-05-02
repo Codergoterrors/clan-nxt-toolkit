@@ -295,10 +295,47 @@ def run_command_live(cmd, timeout=300, shell=True, prefix="    ", label="Install
         return -1, str(e)
 
 
+# Common Windows install paths to check when 'where' fails
+WIN_COMMON_PATHS = {
+    "nmap": [
+        r"C:\Program Files (x86)\Nmap\nmap.exe",
+        r"C:\Program Files\Nmap\nmap.exe",
+    ],
+    "wireshark": [
+        r"C:\Program Files\Wireshark\Wireshark.exe",
+        r"C:\Program Files (x86)\Wireshark\Wireshark.exe",
+    ],
+    "hashcat": [
+        r"C:\Program Files\hashcat\hashcat.exe",
+    ],
+}
+
+
 def check_tool_installed(tool_name):
-    """Check if a system tool is installed."""
-    rc, _, _ = run_command(f"which {tool_name}" if os.name != "nt" else f"where {tool_name}")
-    return rc == 0
+    """Check if a system tool is installed (PATH + common locations on Windows)."""
+    cmd = f"which {tool_name}" if os.name != "nt" else f"where {tool_name}"
+    rc, _, _ = run_command(cmd, timeout=10)
+    if rc == 0:
+        return True
+
+    # On Windows, also check common install directories
+    if os.name == "nt":
+        paths = WIN_COMMON_PATHS.get(tool_name, [])
+        for p in paths:
+            if os.path.isfile(p):
+                # Found it - add its directory to PATH for this session
+                bin_dir = os.path.dirname(p)
+                if bin_dir not in os.environ.get("PATH", ""):
+                    os.environ["PATH"] = bin_dir + os.pathsep + os.environ.get("PATH", "")
+                    print(f"  \033[1;32m[+]\033[0m Found {tool_name} at {bin_dir}, added to PATH")
+                return True
+
+        # Also check data/tools_installed for cloned tools
+        cloned = os.path.join(str(DATA_DIR), "tools_installed", tool_name)
+        if os.path.isdir(cloned):
+            return True
+
+    return False
 
 
 # Package name mappings per platform
