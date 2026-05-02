@@ -407,7 +407,7 @@ def _install_windows(tool_name):
         if rc == 0:
             print(f"  \033[1;32m[✓]\033[0m {tool_name} installed via pip!")
             return True
-        print(f"  \033[1;33m[~]\033[0m pip failed..."))
+        print(f"  \033[1;33m[~]\033[0m pip failed...")
 
     # Method 4: git clone (for tools like nikto, enum4linux)
     if manual_url and "github.com" in manual_url:
