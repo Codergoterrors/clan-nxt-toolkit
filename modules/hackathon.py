@@ -4,6 +4,7 @@ CLAN NXT Toolkit - Hackathon Mode
 Automated and manual system exploitation for CTF/hackathon scenarios.
 """
 
+import os
 import time
 import socket
 from datetime import datetime
@@ -19,6 +20,11 @@ from modules.utils import (
 )
 
 
+def is_windows():
+    """Check if running on Windows."""
+    return os.name == "nt"
+
+
 # ═══════════════════════════════════════════════════════════
 # AUTOMATED HACKATHON MODE
 # ═══════════════════════════════════════════════════════════
@@ -27,7 +33,17 @@ def auto_hackathon():
     clear_screen()
     print_header("AUTOMATED HACKATHON MODE", "Full recon → exploit pipeline")
 
-    # Step 0: Pre-checks
+    # ── Platform check ──
+    if is_windows():
+        print_status(f"{C.Y}Windows detected. Hackathon Automated Mode requires Linux/Kali.{C.RST}", "warning")
+        print_status("Tools like nmap, nikto, hydra are Linux packages (apt install).", "info")
+        print_status(f"Run this tool on {C.W}Kali Linux{C.RST} for full functionality.", "info")
+        print_status("Switching you to Manual Mode (works on any platform)...", "info")
+        print()
+        manual_hackathon()
+        return
+
+    # Step 0: Pre-checks (Linux only)
     print_status("Running pre-flight checks...", "scan")
     local_ip = get_local_ip()
     subnet = get_subnet()
@@ -36,13 +52,14 @@ def auto_hackathon():
 
     required = {"nmap": False, "nikto": False, "searchsploit": False, "hydra": False}
     for tool in required:
+        print_status(f"Checking {tool}...", "scan")
         required[tool] = auto_install_tool(tool)
-        s = "success" if required[tool] else "warning"
+        s = "success" if required[tool] else "error"
         ic = "✓" if required[tool] else "✗"
         print_status(f"{tool}: {ic}", s)
 
     if not required["nmap"]:
-        print_status("nmap is required and could not be installed. Install manually: sudo apt install nmap", "error")
+        print_status("nmap is required and could not be installed. Run: sudo apt install nmap", "error")
         return
 
     # Step 1: Network connectivity check
