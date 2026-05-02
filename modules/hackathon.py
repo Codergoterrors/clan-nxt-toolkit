@@ -14,8 +14,8 @@ from modules.banner import (
     loading_animation, print_progress_bar, confirm_action, typing_effect
 )
 from modules.utils import (
-    run_command, check_tool_installed, get_local_ip, get_subnet,
-    is_valid_ip, check_port, save_report, log_action
+    run_command, check_tool_installed, auto_install_tool, get_local_ip,
+    get_subnet, is_valid_ip, check_port, save_report, log_action
 )
 
 
@@ -36,13 +36,13 @@ def auto_hackathon():
 
     required = {"nmap": False, "nikto": False, "searchsploit": False, "hydra": False}
     for tool in required:
-        required[tool] = check_tool_installed(tool)
+        required[tool] = auto_install_tool(tool)
         s = "success" if required[tool] else "warning"
         ic = "✓" if required[tool] else "✗"
         print_status(f"{tool}: {ic}", s)
 
     if not required["nmap"]:
-        print_status("nmap is required for automated mode. Install: apt install nmap", "error")
+        print_status("nmap is required and could not be installed. Install manually: sudo apt install nmap", "error")
         return
 
     # Step 1: Network connectivity check
@@ -165,7 +165,7 @@ def auto_hackathon():
 
         elif svc in ("http", "https") or port in (80, 443, 8080, 8443):
             print_status(f"Web service on port {port} - fingerprinting...", "scan")
-            if check_tool_installed("whatweb"):
+            if auto_install_tool("whatweb"):
                 proto = "https" if port in (443, 8443) else "http"
                 rc, out, _ = run_command(f"whatweb {proto}://{target_ip}:{port}", timeout=30)
                 if rc == 0:
@@ -174,7 +174,7 @@ def auto_hackathon():
 
         elif svc in ("smb", "microsoft-ds", "netbios-ssn") or port in (139, 445):
             print_status(f"SMB on port {port} - enumerating...", "scan")
-            if check_tool_installed("enum4linux"):
+            if auto_install_tool("enum4linux"):
                 rc, out, _ = run_command(f"enum4linux -a {target_ip} 2>&1 | head -80", timeout=60)
                 if rc == 0:
                     print(f"\n{C.GR}{out}{C.RST}")

@@ -1,0 +1,10 @@
+======================================================================
+  CLAN NXT - VULNERABILITY SCAN REPORT
+======================================================================
+  Target:   https://java-banking-webapp.vercel.app
+  Date:     2026-05-02 21:35:38
+  Duration: 4.0 seconds
+  Findings: 0 total
+
+  CRITICAL: 0  |  HIGH: 0  |  MEDIUM: 0  |  LOW: 0
+======================================================================

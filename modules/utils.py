@@ -166,6 +166,68 @@ def check_tool_installed(tool_name):
     return rc == 0
 
 
+# Package name mapping (tool binary → apt package name)
+APT_PACKAGE_MAP = {
+    "nmap": "nmap",
+    "nikto": "nikto",
+    "sqlmap": "sqlmap",
+    "whatweb": "whatweb",
+    "dirb": "dirb",
+    "gobuster": "gobuster",
+    "hydra": "hydra",
+    "john": "john",
+    "hashcat": "hashcat",
+    "enum4linux": "enum4linux",
+    "smbclient": "smbclient",
+    "curl": "curl",
+    "wget": "wget",
+    "whois": "whois",
+    "dig": "dnsutils",
+    "traceroute": "traceroute",
+    "masscan": "masscan",
+    "wpscan": "wpscan",
+    "searchsploit": "exploitdb",
+    "netcat": "netcat-openbsd",
+    "nc": "netcat-openbsd",
+    "wireshark": "wireshark",
+    "aircrack-ng": "aircrack-ng",
+    "recon-ng": "recon-ng",
+    "theharvester": "theharvester",
+}
+
+
+def auto_install_tool(tool_name):
+    """
+    Check if a tool is installed; if not, attempt to install it automatically.
+    Returns True if the tool is available after the check/install.
+    """
+    if check_tool_installed(tool_name):
+        return True
+
+    # Only attempt auto-install on Linux
+    if os.name == "nt":
+        return False
+
+    pkg = APT_PACKAGE_MAP.get(tool_name, tool_name)
+
+    print(f"  \033[1;33m[⚠]\033[0m {tool_name} not found. Attempting install: \033[1;36mapt install {pkg}\033[0m")
+
+    # Try apt install (needs sudo/root)
+    rc, out, err = run_command(f"sudo apt-get install -y {pkg}", timeout=120)
+    if rc == 0:
+        print(f"  \033[1;32m[✓]\033[0m {tool_name} installed successfully!")
+        return True
+
+    # Fallback: try without sudo (if already root)
+    rc, out, err = run_command(f"apt-get install -y {pkg}", timeout=120)
+    if rc == 0:
+        print(f"  \033[1;32m[✓]\033[0m {tool_name} installed successfully!")
+        return True
+
+    print(f"  \033[1;31m[✗]\033[0m Failed to install {tool_name}. Install manually: sudo apt install {pkg}")
+    return False
+
+
 def get_installed_tools():
     """Get a dict of common security tools and their install status."""
     tools = [

@@ -1,0 +1,26 @@
+======================================================================
+  CLAN NXT - VULNERABILITY SCAN REPORT
+======================================================================
+  Target:   https://www.xerochat.tech
+  Date:     2026-05-02 21:33:00
+  Duration: 15.1 seconds
+  Findings: 4 total
+
+  CRITICAL: 0  |  HIGH: 0  |  MEDIUM: 3  |  LOW: 1
+======================================================================
+
+[MEDIUM] Missing Security Headers
+  Details:  Missing: Content-Security-Policy, X-Content-Type-Options, X-Frame-Options, X-XSS-Protection, Referrer-Policy, Permissions-Policy, Cross-Origin-Opener-Policy, Cross-Origin-Resource-Policy, Cross-Origin-Embedder-Policy
+  Evidence: ['Content-Security-Policy', 'X-Content-Type-Options', 'X-Frame-Options', 'X-XSS-Protection', 'Referrer-Policy', 'Permissions-Policy', 'Cross-Origin-Opener-Policy', 'Cross-Origin-Resource-Policy', 'Cross-Origin-Embedder-Policy']
+
+[LOW] Server Header Exposed
+  Details:  Server: Vercel
+  Evidence: Vercel
+
+[MEDIUM] Found: /login
+  Details:  Status 200
+  Evidence: https://www.xerochat.tech/login
+
+[MEDIUM] No Rate Limiting
+  Details:  25 rapid requests went through without throttling
+  Evidence: https://www.xerochat.tech

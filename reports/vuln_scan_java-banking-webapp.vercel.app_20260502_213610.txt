@@ -1,0 +1,22 @@
+======================================================================
+  CLAN NXT - VULNERABILITY SCAN REPORT
+======================================================================
+  Target:   https://java-banking-webapp.vercel.app
+  Date:     2026-05-02 21:35:54
+  Duration: 16.5 seconds
+  Findings: 3 total
+
+  CRITICAL: 0  |  HIGH: 0  |  MEDIUM: 2  |  LOW: 1
+======================================================================
+
+[MEDIUM] Missing Security Headers
+  Details:  Missing: Content-Security-Policy, X-Content-Type-Options, X-Frame-Options, X-XSS-Protection, Referrer-Policy, Permissions-Policy, Cross-Origin-Opener-Policy, Cross-Origin-Resource-Policy, Cross-Origin-Embedder-Policy
+  Evidence: ['Content-Security-Policy', 'X-Content-Type-Options', 'X-Frame-Options', 'X-XSS-Protection', 'Referrer-Policy', 'Permissions-Policy', 'Cross-Origin-Opener-Policy', 'Cross-Origin-Resource-Policy', 'Cross-Origin-Embedder-Policy']
+
+[LOW] Server Header Exposed
+  Details:  Server: Vercel
+  Evidence: Vercel
+
+[MEDIUM] No Rate Limiting
+  Details:  25 rapid requests went through without throttling
+  Evidence: https://java-banking-webapp.vercel.app
