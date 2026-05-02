@@ -166,66 +166,146 @@ def check_tool_installed(tool_name):
     return rc == 0
 
 
-# Package name mapping (tool binary → apt package name)
+# Package name mappings per platform
+# Linux: tool → apt package
 APT_PACKAGE_MAP = {
-    "nmap": "nmap",
-    "nikto": "nikto",
-    "sqlmap": "sqlmap",
-    "whatweb": "whatweb",
-    "dirb": "dirb",
-    "gobuster": "gobuster",
-    "hydra": "hydra",
-    "john": "john",
-    "hashcat": "hashcat",
-    "enum4linux": "enum4linux",
-    "smbclient": "smbclient",
-    "curl": "curl",
-    "wget": "wget",
-    "whois": "whois",
-    "dig": "dnsutils",
-    "traceroute": "traceroute",
-    "masscan": "masscan",
-    "wpscan": "wpscan",
-    "searchsploit": "exploitdb",
-    "netcat": "netcat-openbsd",
-    "nc": "netcat-openbsd",
-    "wireshark": "wireshark",
-    "aircrack-ng": "aircrack-ng",
-    "recon-ng": "recon-ng",
-    "theharvester": "theharvester",
+    "nmap": "nmap", "nikto": "nikto", "sqlmap": "sqlmap",
+    "whatweb": "whatweb", "dirb": "dirb", "gobuster": "gobuster",
+    "hydra": "hydra", "john": "john", "hashcat": "hashcat",
+    "enum4linux": "enum4linux", "smbclient": "smbclient",
+    "curl": "curl", "wget": "wget", "whois": "whois",
+    "dig": "dnsutils", "traceroute": "traceroute", "masscan": "masscan",
+    "wpscan": "wpscan", "searchsploit": "exploitdb",
+    "netcat": "netcat-openbsd", "nc": "netcat-openbsd",
+    "wireshark": "wireshark", "aircrack-ng": "aircrack-ng",
+    "recon-ng": "recon-ng", "theharvester": "theharvester",
 }
+
+# Windows: tool → (winget_id, choco_name, pip_name, manual_url)
+# None means not available via that method
+WIN_PACKAGE_MAP = {
+    "nmap":         ("Insecure.Nmap",    "nmap",     None,     "https://nmap.org/download.html"),
+    "nikto":        (None,               None,       None,     "https://github.com/sullo/nikto"),
+    "sqlmap":       (None,               "sqlmap",   "sqlmap", "https://github.com/sqlmapproject/sqlmap"),
+    "hydra":        (None,               "thc-hydra",None,     "https://github.com/vanhauser-thc/thc-hydra"),
+    "hashcat":      (None,               "hashcat",  None,     "https://hashcat.net/hashcat/"),
+    "curl":         (None,               "curl",     None,     None),  # Usually built-in on Win10+
+    "wget":         (None,               "wget",     None,     None),
+    "searchsploit": (None,               None,       None,     "https://gitlab.com/exploit-database/exploitdb"),
+    "whatweb":      (None,               None,       None,     "https://github.com/urbanadventurer/WhatWeb"),
+    "gobuster":     (None,               "gobuster", None,     "https://github.com/OJ/gobuster"),
+    "john":         (None,               "john",     None,     "https://www.openwall.com/john/"),
+    "wireshark":    ("WiresharkFoundation.Wireshark","wireshark",None,"https://www.wireshark.org/download.html"),
+    "masscan":      (None,               None,       None,     "https://github.com/robertdavidgraham/masscan"),
+    "enum4linux":   (None,               None,       None,     "https://github.com/CiscoCXSecurity/enum4linux"),
+    "dirb":         (None,               None,       None,     "https://github.com/v0re/dirb"),
+    "wpscan":       (None,               None,       None,     "https://github.com/wpscanteam/wpscan"),
+}
+
+
+def _has_package_manager(name):
+    """Check if a package manager is available."""
+    cmd = f"where {name}" if os.name == "nt" else f"which {name}"
+    rc, _, _ = run_command(cmd, timeout=10)
+    return rc == 0
+
+
+def _install_linux(tool_name):
+    """Install a tool on Linux via apt."""
+    pkg = APT_PACKAGE_MAP.get(tool_name, tool_name)
+    print(f"  \033[1;33m[⚠]\033[0m {tool_name} not found. Installing: \033[1;36msudo apt install {pkg}\033[0m")
+    rc, _, err = run_command(f"sudo apt-get install -y {pkg}", timeout=120)
+    if rc == 0:
+        print(f"  \033[1;32m[✓]\033[0m {tool_name} installed successfully!")
+        return True
+    rc, _, _ = run_command(f"apt-get install -y {pkg}", timeout=120)
+    if rc == 0:
+        print(f"  \033[1;32m[✓]\033[0m {tool_name} installed successfully!")
+        return True
+    print(f"  \033[1;31m[✗]\033[0m Failed. Run manually: sudo apt install {pkg}")
+    return False
+
+
+def _install_windows(tool_name):
+    """Install a tool on Windows via winget → choco → pip fallback chain."""
+    info = WIN_PACKAGE_MAP.get(tool_name)
+    if not info:
+        print(f"  \033[1;31m[✗]\033[0m {tool_name} is not available for Windows auto-install.")
+        return False
+
+    winget_id, choco_name, pip_name, manual_url = info
+
+    # Ask user permission
+    print(f"\n  \033[1;33m[?]\033[0m {tool_name} is not installed.")
+    resp = input(f"  \033[1;33m[?]\033[0m Allow CLAN NXT to install it? (y/n): ").strip().lower()
+    if resp not in ("y", "yes"):
+        if manual_url:
+            print(f"  \033[1;36m[i]\033[0m Install manually: {manual_url}\033[0m")
+        return False
+
+    # Method 1: winget
+    if winget_id and _has_package_manager("winget"):
+        print(f"  \033[1;36m[⟳]\033[0m Installing via winget: {winget_id}")
+        rc, out, err = run_command(
+            f"winget install --id {winget_id} --accept-package-agreements --accept-source-agreements -e",
+            timeout=180
+        )
+        if rc == 0 or "successfully installed" in (out + err).lower():
+            print(f"  \033[1;32m[✓]\033[0m {tool_name} installed via winget!")
+            return True
+        print(f"  \033[1;33m[~]\033[0m winget failed, trying next method...")
+
+    # Method 2: chocolatey
+    if choco_name and _has_package_manager("choco"):
+        print(f"  \033[1;36m[⟳]\033[0m Installing via choco: {choco_name}")
+        rc, out, err = run_command(f"choco install {choco_name} -y", timeout=180)
+        if rc == 0:
+            print(f"  \033[1;32m[✓]\033[0m {tool_name} installed via choco!")
+            return True
+        print(f"  \033[1;33m[~]\033[0m choco failed, trying next method...")
+
+    # Method 3: pip
+    if pip_name:
+        print(f"  \033[1;36m[⟳]\033[0m Installing via pip: {pip_name}")
+        rc, out, err = run_command(f"python -m pip install {pip_name}", timeout=120)
+        if rc == 0:
+            print(f"  \033[1;32m[✓]\033[0m {tool_name} installed via pip!")
+            return True
+        print(f"  \033[1;33m[~]\033[0m pip failed...")
+
+    # Method 4: git clone (for tools like nikto, enum4linux)
+    if manual_url and "github.com" in manual_url:
+        print(f"  \033[1;36m[⟳]\033[0m Cloning from GitHub: {manual_url}")
+        clone_dir = os.path.join(str(DATA_DIR), "tools_installed", tool_name)
+        os.makedirs(os.path.dirname(clone_dir), exist_ok=True)
+        rc, out, err = run_command(f"git clone {manual_url}.git \"{clone_dir}\"", timeout=120)
+        if rc == 0:
+            print(f"  \033[1;32m[✓]\033[0m {tool_name} cloned to: {clone_dir}")
+            print(f"  \033[1;36m[i]\033[0m You may need to add it to PATH or run from that directory.")
+            return True
+
+    # All methods failed
+    if manual_url:
+        print(f"  \033[1;31m[✗]\033[0m Could not auto-install {tool_name}.")
+        print(f"  \033[1;36m[i]\033[0m Download manually: {manual_url}")
+    else:
+        print(f"  \033[1;31m[✗]\033[0m {tool_name} not available for auto-install on Windows.")
+    return False
 
 
 def auto_install_tool(tool_name):
     """
-    Check if a tool is installed; if not, attempt to install it automatically.
+    Cross-platform tool installer.
+    Checks if installed → if not, installs via apt (Linux) or winget/choco/pip (Windows).
     Returns True if the tool is available after the check/install.
     """
     if check_tool_installed(tool_name):
         return True
 
-    # Only attempt auto-install on Linux
     if os.name == "nt":
-        return False
-
-    pkg = APT_PACKAGE_MAP.get(tool_name, tool_name)
-
-    print(f"  \033[1;33m[⚠]\033[0m {tool_name} not found. Attempting install: \033[1;36mapt install {pkg}\033[0m")
-
-    # Try apt install (needs sudo/root)
-    rc, out, err = run_command(f"sudo apt-get install -y {pkg}", timeout=120)
-    if rc == 0:
-        print(f"  \033[1;32m[✓]\033[0m {tool_name} installed successfully!")
-        return True
-
-    # Fallback: try without sudo (if already root)
-    rc, out, err = run_command(f"apt-get install -y {pkg}", timeout=120)
-    if rc == 0:
-        print(f"  \033[1;32m[✓]\033[0m {tool_name} installed successfully!")
-        return True
-
-    print(f"  \033[1;31m[✗]\033[0m Failed to install {tool_name}. Install manually: sudo apt install {pkg}")
-    return False
+        return _install_windows(tool_name)
+    else:
+        return _install_linux(tool_name)
 
 
 def get_installed_tools():

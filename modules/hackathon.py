@@ -20,11 +20,6 @@ from modules.utils import (
 )
 
 
-def is_windows():
-    """Check if running on Windows."""
-    return os.name == "nt"
-
-
 # ═══════════════════════════════════════════════════════════
 # AUTOMATED HACKATHON MODE
 # ═══════════════════════════════════════════════════════════
@@ -33,22 +28,14 @@ def auto_hackathon():
     clear_screen()
     print_header("AUTOMATED HACKATHON MODE", "Full recon → exploit pipeline")
 
-    # ── Platform check ──
-    if is_windows():
-        print_status(f"{C.Y}Windows detected. Hackathon Automated Mode requires Linux/Kali.{C.RST}", "warning")
-        print_status("Tools like nmap, nikto, hydra are Linux packages (apt install).", "info")
-        print_status(f"Run this tool on {C.W}Kali Linux{C.RST} for full functionality.", "info")
-        print_status("Switching you to Manual Mode (works on any platform)...", "info")
-        print()
-        manual_hackathon()
-        return
-
-    # Step 0: Pre-checks (Linux only)
+    # Step 0: Pre-checks
     print_status("Running pre-flight checks...", "scan")
     local_ip = get_local_ip()
     subnet = get_subnet()
     print_status(f"Your IP: {C.W}{local_ip}{C.RST}", "info")
     print_status(f"Subnet: {C.W}{subnet}{C.RST}", "info")
+    if os.name == "nt":
+        print_status(f"{C.Y}Windows detected — installing tools via winget/choco/pip{C.RST}", "info")
 
     required = {"nmap": False, "nikto": False, "searchsploit": False, "hydra": False}
     for tool in required:
@@ -59,7 +46,11 @@ def auto_hackathon():
         print_status(f"{tool}: {ic}", s)
 
     if not required["nmap"]:
-        print_status("nmap is required and could not be installed. Run: sudo apt install nmap", "error")
+        print_status("nmap is required and could not be installed.", "error")
+        if os.name == "nt":
+            print_status(f"Download nmap from: {C.CY}https://nmap.org/download.html{C.RST}", "info")
+        else:
+            print_status("Run: sudo apt install nmap", "info")
         return
 
     # Step 1: Network connectivity check
