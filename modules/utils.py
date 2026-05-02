@@ -163,23 +163,50 @@ def run_command(cmd, timeout=300, shell=True):
 def run_command_live(cmd, timeout=300, shell=True, prefix="    "):
     """
     Run a shell command with LIVE output streaming (real-time progress).
-    Shows download progress, speed, percentages as they happen.
+    Handles \\r carriage returns so progress bars stay on one line.
     Returns (returncode, full_output_str).
     """
     import threading
     import time as _time
 
     full_output = []
+    _lock = threading.Lock()
 
     def _stream_reader(stream, label_color="\033[0;90m"):
-        """Read from a stream line-by-line and print in real-time."""
+        """Read from stream char-by-char, handle \\r to overwrite line in-place."""
         try:
-            for line in iter(stream.readline, ""):
-                line = line.rstrip()
-                if line:
-                    full_output.append(line)
-                    # Print with styled prefix
-                    print(f"{prefix}{label_color}{line}\033[0m", flush=True)
+            line_buf = ""
+            while True:
+                char = stream.read(1)
+                if not char:
+                    break
+                if char == "\r":
+                    # Carriage return: overwrite current line in terminal
+                    clean = line_buf.strip()
+                    if clean:
+                        with _lock:
+                            sys.stdout.write(f"\r{prefix}{label_color}{clean}\033[0m\033[K")
+                            sys.stdout.flush()
+                    line_buf = ""
+                elif char == "\n":
+                    # Newline: print line and move to next
+                    clean = line_buf.strip()
+                    if clean:
+                        with _lock:
+                            full_output.append(clean)
+                            sys.stdout.write(f"\r{prefix}{label_color}{clean}\033[0m\033[K\n")
+                            sys.stdout.flush()
+                    line_buf = ""
+                else:
+                    line_buf += char
+
+            # Flush remaining buffer
+            clean = line_buf.strip()
+            if clean:
+                with _lock:
+                    full_output.append(clean)
+                    sys.stdout.write(f"\r{prefix}{label_color}{clean}\033[0m\033[K\n")
+                    sys.stdout.flush()
         except Exception:
             pass
 
@@ -190,26 +217,25 @@ def run_command_live(cmd, timeout=300, shell=True, prefix="    "):
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
-            bufsize=1  # Line-buffered for real-time output
+            bufsize=0  # Unbuffered for real-time char reading
         )
 
-        # Stream stdout and stderr in parallel threads
         t_out = threading.Thread(target=_stream_reader, args=(process.stdout, "\033[0;37m"), daemon=True)
         t_err = threading.Thread(target=_stream_reader, args=(process.stderr, "\033[0;90m"), daemon=True)
         t_out.start()
         t_err.start()
 
-        # Wait for process with timeout
         start = _time.time()
         while process.poll() is None:
             if _time.time() - start > timeout:
                 process.kill()
+                print()  # Clear the progress line
                 return -1, "\n".join(full_output)
             _time.sleep(0.1)
 
-        # Let threads finish reading remaining output
         t_out.join(timeout=5)
         t_err.join(timeout=5)
+        print("\r\033[K", end="", flush=True)  # Clear last progress line remnant
 
         return process.returncode, "\n".join(full_output)
 
