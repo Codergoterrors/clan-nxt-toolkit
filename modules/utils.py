@@ -363,7 +363,9 @@ def _install_linux(tool_name):
 
 
 def _install_windows(tool_name, approved=False):
-    """Install a tool on Windows via winget → choco → pip fallback chain."""
+    """Install a tool on Windows via winget → choco → pip → git clone fallback."""
+    import shutil
+
     info = WIN_PACKAGE_MAP.get(tool_name)
     if not info:
         print(f"  \033[1;31m[✗]\033[0m {tool_name} is not available for Windows auto-install.")
@@ -382,21 +384,24 @@ def _install_windows(tool_name, approved=False):
 
     print(f"  \033[1;36m[⟳]\033[0m Installing {tool_name}...")
 
-    # Method 1: winget
+    # Method 1: winget (needs admin elevation sometimes)
     if winget_id and _has_package_manager("winget"):
         print(f"  \033[0;90m   → trying winget ({winget_id})\033[0m")
         rc, out = run_command_live(
-            f"winget install --id {winget_id} --accept-package-agreements --accept-source-agreements -e",
-            timeout=180, prefix="    "
+            f"winget install --id {winget_id} --accept-package-agreements --accept-source-agreements --silent -e",
+            timeout=300, prefix="    "
         )
         if rc == 0 or "successfully installed" in out.lower():
             print(f"  \033[1;32m[✓]\033[0m {tool_name} installed via winget!")
             return True
+        # Check if it failed due to admin
+        if "administrator" in out.lower() or "elevated" in out.lower():
+            print(f"  \033[1;33m[!]\033[0m winget needs admin. Run terminal as Administrator and retry.")
 
     # Method 2: chocolatey
     if choco_name and _has_package_manager("choco"):
         print(f"  \033[0;90m   → trying choco ({choco_name})\033[0m")
-        rc, out = run_command_live(f"choco install {choco_name} -y", timeout=180, prefix="    ")
+        rc, out = run_command_live(f"choco install {choco_name} -y --no-progress", timeout=300, prefix="    ")
         if rc == 0:
             print(f"  \033[1;32m[✓]\033[0m {tool_name} installed via choco!")
             return True
@@ -404,19 +409,31 @@ def _install_windows(tool_name, approved=False):
     # Method 3: pip
     if pip_name:
         print(f"  \033[0;90m   → trying pip ({pip_name})\033[0m")
-        rc, out = run_command_live(f"python -m pip install {pip_name}", timeout=120, prefix="    ")
+        rc, out = run_command_live(f"python -m pip install {pip_name} --quiet", timeout=180, prefix="    ")
         if rc == 0:
             print(f"  \033[1;32m[✓]\033[0m {tool_name} installed via pip!")
             return True
 
-    # Method 4: git clone
+    # Method 4: git clone (shallow, with cleanup)
     if manual_url and ("github.com" in manual_url or "gitlab.com" in manual_url):
-        print(f"  \033[0;90m   → trying git clone\033[0m")
+        print(f"  \033[0;90m   → trying git clone (shallow)\033[0m")
         clone_dir = os.path.join(str(DATA_DIR), "tools_installed", tool_name)
+
+        # Clean up existing directory from failed previous attempts
+        if os.path.exists(clone_dir):
+            try:
+                shutil.rmtree(clone_dir)
+            except Exception:
+                pass
+
         os.makedirs(os.path.dirname(clone_dir), exist_ok=True)
-        # Don't double-append .git if already there
         clone_url = manual_url if manual_url.endswith(".git") else f"{manual_url}.git"
-        rc, out = run_command_live(f"git clone --progress \"{clone_url}\" \"{clone_dir}\"", timeout=120, prefix="    ")
+
+        # Use --depth 1 for shallow clone (much faster, avoids timeout)
+        rc, out = run_command_live(
+            f"git clone --depth 1 --progress \"{clone_url}\" \"{clone_dir}\"",
+            timeout=300, prefix="    "
+        )
         if rc == 0:
             print(f"  \033[1;32m[✓]\033[0m {tool_name} cloned to: {clone_dir}")
             return True

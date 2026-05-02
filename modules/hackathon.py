@@ -35,7 +35,7 @@ def auto_hackathon():
     print_status(f"Your IP: {C.W}{local_ip}{C.RST}", "info")
     print_status(f"Subnet: {C.W}{subnet}{C.RST}", "info")
     if os.name == "nt":
-        print_status(f"{C.Y}Windows detected — installing tools via winget/choco/pip{C.RST}", "info")
+        print_status(f"{C.Y}Windows detected — will try winget/choco/pip/git{C.RST}", "info")
 
     # Check which tools are missing first
     required = {"nmap": False, "nikto": False, "searchsploit": False, "hydra": False}
@@ -51,24 +51,36 @@ def auto_hackathon():
             print_status(f"{tool}: ✗ (not installed)", "warning")
 
     # Ask permission ONCE for all missing tools
-    user_approved = False
     if missing:
         print()
         print_status(f"Missing tools: {C.W}{', '.join(missing)}{C.RST}", "warning")
         resp = input(f"\n  {C.Y}[?]{C.RST} Allow CLAN NXT to install all missing tools? {C.GR}(y/n):{C.RST} ").strip().lower()
-        user_approved = resp in ("y", "yes")
 
-        for tool in missing:
-            if user_approved:
+        if resp in ("y", "yes"):
+            print()
+            for tool in missing:
                 required[tool] = auto_install_tool(tool, approved=True)
-            s = "success" if required[tool] else "error"
-            ic = "✓" if required[tool] else "✗"
-            print_status(f"{tool}: {ic}", s)
+                s = "success" if required[tool] else "warning"
+                ic = "✓" if required[tool] else "✗"
+                print_status(f"{tool}: {ic}", s)
+        else:
+            print_status("Skipping tool installation.", "info")
 
+    # Summary
+    print()
+    installed = [t for t, v in required.items() if v]
+    not_installed = [t for t, v in required.items() if not v]
+    if installed:
+        print_status(f"Available: {C.GR}{', '.join(installed)}{C.RST}", "success")
+    if not_installed:
+        print_status(f"Unavailable: {C.Y}{', '.join(not_installed)}{C.RST} (will skip related steps)", "warning")
+
+    # nmap is the only hard requirement
     if not required["nmap"]:
-        print_status("nmap is required and could not be installed.", "error")
+        print_status("nmap is required for scanning and could not be installed.", "error")
         if os.name == "nt":
             print_status(f"Download nmap from: {C.CY}https://nmap.org/download.html{C.RST}", "info")
+            print_status(f"Or run this terminal as {C.W}Administrator{C.RST} and retry.", "info")
         else:
             print_status("Run: sudo apt install nmap", "info")
         return
