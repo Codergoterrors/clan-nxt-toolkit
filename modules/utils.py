@@ -160,6 +160,65 @@ def run_command(cmd, timeout=300, shell=True):
         return -1, "", str(e)
 
 
+def run_command_live(cmd, timeout=300, shell=True, prefix="    "):
+    """
+    Run a shell command with LIVE output streaming (real-time progress).
+    Shows download progress, speed, percentages as they happen.
+    Returns (returncode, full_output_str).
+    """
+    import threading
+    import time as _time
+
+    full_output = []
+
+    def _stream_reader(stream, label_color="\033[0;90m"):
+        """Read from a stream line-by-line and print in real-time."""
+        try:
+            for line in iter(stream.readline, ""):
+                line = line.rstrip()
+                if line:
+                    full_output.append(line)
+                    # Print with styled prefix
+                    print(f"{prefix}{label_color}{line}\033[0m", flush=True)
+        except Exception:
+            pass
+
+    try:
+        process = subprocess.Popen(
+            cmd,
+            shell=shell,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1  # Line-buffered for real-time output
+        )
+
+        # Stream stdout and stderr in parallel threads
+        t_out = threading.Thread(target=_stream_reader, args=(process.stdout, "\033[0;37m"), daemon=True)
+        t_err = threading.Thread(target=_stream_reader, args=(process.stderr, "\033[0;90m"), daemon=True)
+        t_out.start()
+        t_err.start()
+
+        # Wait for process with timeout
+        start = _time.time()
+        while process.poll() is None:
+            if _time.time() - start > timeout:
+                process.kill()
+                return -1, "\n".join(full_output)
+            _time.sleep(0.1)
+
+        # Let threads finish reading remaining output
+        t_out.join(timeout=5)
+        t_err.join(timeout=5)
+
+        return process.returncode, "\n".join(full_output)
+
+    except FileNotFoundError:
+        return -1, f"Command not found: {cmd}"
+    except Exception as e:
+        return -1, str(e)
+
+
 def check_tool_installed(tool_name):
     """Check if a system tool is installed."""
     rc, _, _ = run_command(f"which {tool_name}" if os.name != "nt" else f"where {tool_name}")
@@ -211,14 +270,17 @@ def _has_package_manager(name):
 
 
 def _install_linux(tool_name):
-    """Install a tool on Linux via apt."""
+    """Install a tool on Linux via apt with live progress."""
     pkg = APT_PACKAGE_MAP.get(tool_name, tool_name)
     print(f"  \033[1;33m[⚠]\033[0m {tool_name} not found. Installing: \033[1;36msudo apt install {pkg}\033[0m")
-    rc, _, err = run_command(f"sudo apt-get install -y {pkg}", timeout=120)
+    print(f"  \033[0;90m{'─' * 55}\033[0m")
+    rc, out = run_command_live(f"sudo apt-get install -y {pkg}", timeout=120, prefix="    \033[0;36m│\033[0m ")
+    print(f"  \033[0;90m{'─' * 55}\033[0m")
     if rc == 0:
         print(f"  \033[1;32m[✓]\033[0m {tool_name} installed successfully!")
         return True
-    rc, _, _ = run_command(f"apt-get install -y {pkg}", timeout=120)
+    # Fallback without sudo
+    rc, out = run_command_live(f"apt-get install -y {pkg}", timeout=120, prefix="    \033[0;36m│\033[0m ")
     if rc == 0:
         print(f"  \033[1;32m[✓]\033[0m {tool_name} installed successfully!")
         return True
@@ -246,11 +308,13 @@ def _install_windows(tool_name):
     # Method 1: winget
     if winget_id and _has_package_manager("winget"):
         print(f"  \033[1;36m[⟳]\033[0m Installing via winget: {winget_id}")
-        rc, out, err = run_command(
+        print(f"  \033[0;90m{'─' * 55}\033[0m")
+        rc, out = run_command_live(
             f"winget install --id {winget_id} --accept-package-agreements --accept-source-agreements -e",
-            timeout=180
+            timeout=180, prefix="    \033[0;36m│\033[0m "
         )
-        if rc == 0 or "successfully installed" in (out + err).lower():
+        print(f"  \033[0;90m{'─' * 55}\033[0m")
+        if rc == 0 or "successfully installed" in out.lower():
             print(f"  \033[1;32m[✓]\033[0m {tool_name} installed via winget!")
             return True
         print(f"  \033[1;33m[~]\033[0m winget failed, trying next method...")
@@ -258,7 +322,9 @@ def _install_windows(tool_name):
     # Method 2: chocolatey
     if choco_name and _has_package_manager("choco"):
         print(f"  \033[1;36m[⟳]\033[0m Installing via choco: {choco_name}")
-        rc, out, err = run_command(f"choco install {choco_name} -y", timeout=180)
+        print(f"  \033[0;90m{'─' * 55}\033[0m")
+        rc, out = run_command_live(f"choco install {choco_name} -y", timeout=180, prefix="    \033[0;36m│\033[0m ")
+        print(f"  \033[0;90m{'─' * 55}\033[0m")
         if rc == 0:
             print(f"  \033[1;32m[✓]\033[0m {tool_name} installed via choco!")
             return True
@@ -267,7 +333,9 @@ def _install_windows(tool_name):
     # Method 3: pip
     if pip_name:
         print(f"  \033[1;36m[⟳]\033[0m Installing via pip: {pip_name}")
-        rc, out, err = run_command(f"python -m pip install {pip_name}", timeout=120)
+        print(f"  \033[0;90m{'─' * 55}\033[0m")
+        rc, out = run_command_live(f"python -m pip install {pip_name}", timeout=120, prefix="    \033[0;36m│\033[0m ")
+        print(f"  \033[0;90m{'─' * 55}\033[0m")
         if rc == 0:
             print(f"  \033[1;32m[✓]\033[0m {tool_name} installed via pip!")
             return True
@@ -276,9 +344,11 @@ def _install_windows(tool_name):
     # Method 4: git clone (for tools like nikto, enum4linux)
     if manual_url and "github.com" in manual_url:
         print(f"  \033[1;36m[⟳]\033[0m Cloning from GitHub: {manual_url}")
+        print(f"  \033[0;90m{'─' * 55}\033[0m")
         clone_dir = os.path.join(str(DATA_DIR), "tools_installed", tool_name)
         os.makedirs(os.path.dirname(clone_dir), exist_ok=True)
-        rc, out, err = run_command(f"git clone {manual_url}.git \"{clone_dir}\"", timeout=120)
+        rc, out = run_command_live(f"git clone --progress {manual_url}.git \"{clone_dir}\"", timeout=120, prefix="    \033[0;36m│\033[0m ")
+        print(f"  \033[0;90m{'─' * 55}\033[0m")
         if rc == 0:
             print(f"  \033[1;32m[✓]\033[0m {tool_name} cloned to: {clone_dir}")
             print(f"  \033[1;36m[i]\033[0m You may need to add it to PATH or run from that directory.")
