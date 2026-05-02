@@ -160,55 +160,86 @@ def run_command(cmd, timeout=300, shell=True):
         return -1, "", str(e)
 
 
-def run_command_live(cmd, timeout=300, shell=True, prefix="    "):
+def run_command_live(cmd, timeout=300, shell=True, prefix="    ", label="Installing"):
     """
-    Run a shell command with LIVE output streaming (real-time progress).
-    Handles \\r carriage returns so progress bars stay on one line.
+    Run a shell command with an animated progress bar + live status line.
+    Shows a pulsing bar, elapsed time, and the latest output from the process.
     Returns (returncode, full_output_str).
     """
     import threading
     import time as _time
 
     full_output = []
+    latest_status = ["Starting..."]
     _lock = threading.Lock()
+    done_event = threading.Event()
 
-    def _stream_reader(stream, label_color="\033[0;90m"):
-        """Read from stream char-by-char, handle \\r to overwrite line in-place."""
+    def _output_reader(stream):
+        """Read process output and extract meaningful status lines."""
         try:
             line_buf = ""
             while True:
                 char = stream.read(1)
                 if not char:
                     break
-                if char == "\r":
-                    # Carriage return: overwrite current line in terminal
+                if char in ("\r", "\n"):
                     clean = line_buf.strip()
-                    if clean:
-                        with _lock:
-                            sys.stdout.write(f"\r{prefix}{label_color}{clean}\033[0m\033[K")
-                            sys.stdout.flush()
-                    line_buf = ""
-                elif char == "\n":
-                    # Newline: print line and move to next
-                    clean = line_buf.strip()
-                    if clean:
+                    if clean and len(clean) > 3:
                         with _lock:
                             full_output.append(clean)
-                            sys.stdout.write(f"\r{prefix}{label_color}{clean}\033[0m\033[K\n")
-                            sys.stdout.flush()
+                            # Extract meaningful status (skip empty/junk lines)
+                            latest_status[0] = clean[:70]
                     line_buf = ""
                 else:
                     line_buf += char
-
-            # Flush remaining buffer
+            # Flush
             clean = line_buf.strip()
-            if clean:
+            if clean and len(clean) > 3:
                 with _lock:
                     full_output.append(clean)
-                    sys.stdout.write(f"\r{prefix}{label_color}{clean}\033[0m\033[K\n")
-                    sys.stdout.flush()
+                    latest_status[0] = clean[:70]
         except Exception:
             pass
+
+    def _progress_animator():
+        """Animate a progress bar while the process runs."""
+        bar_chars = "━"
+        pulse_chars = "░▒▓█▓▒░"
+        start = _time.time()
+        width = 30
+        i = 0
+
+        while not done_event.is_set():
+            elapsed = _time.time() - start
+            mins, secs = divmod(int(elapsed), 60)
+
+            # Build pulsing progress bar
+            pos = i % (width + len(pulse_chars))
+            bar = ""
+            for j in range(width):
+                pulse_idx = pos - j
+                if 0 <= pulse_idx < len(pulse_chars):
+                    bar += pulse_chars[pulse_idx]
+                else:
+                    bar += "░"
+
+            # Get current status
+            with _lock:
+                status = latest_status[0]
+
+            # Truncate status to fit terminal
+            max_status_len = 50
+            if len(status) > max_status_len:
+                status = status[:max_status_len - 3] + "..."
+
+            # Print animated line
+            time_str = f"{mins:02d}:{secs:02d}"
+            line = f"\r{prefix}\033[1;31m{bar}\033[0m \033[0;90m[{time_str}]\033[0m \033[0;36m{status}\033[0m\033[K"
+            sys.stdout.write(line)
+            sys.stdout.flush()
+
+            i += 1
+            _time.sleep(0.12)
 
     try:
         process = subprocess.Popen(
@@ -217,25 +248,44 @@ def run_command_live(cmd, timeout=300, shell=True, prefix="    "):
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
-            bufsize=0  # Unbuffered for real-time char reading
+            bufsize=0
         )
 
-        t_out = threading.Thread(target=_stream_reader, args=(process.stdout, "\033[0;37m"), daemon=True)
-        t_err = threading.Thread(target=_stream_reader, args=(process.stderr, "\033[0;90m"), daemon=True)
+        # Reader threads for stdout and stderr
+        t_out = threading.Thread(target=_output_reader, args=(process.stdout,), daemon=True)
+        t_err = threading.Thread(target=_output_reader, args=(process.stderr,), daemon=True)
+        # Animator thread
+        t_anim = threading.Thread(target=_progress_animator, daemon=True)
+
         t_out.start()
         t_err.start()
+        t_anim.start()
 
         start = _time.time()
         while process.poll() is None:
             if _time.time() - start > timeout:
+                done_event.set()
                 process.kill()
-                print()  # Clear the progress line
+                sys.stdout.write(f"\r{prefix}\033[1;31m{'━' * 30}\033[0m \033[1;33mTIMED OUT\033[0m\033[K\n")
+                sys.stdout.flush()
                 return -1, "\n".join(full_output)
             _time.sleep(0.1)
 
+        # Stop animation
+        done_event.set()
         t_out.join(timeout=5)
         t_err.join(timeout=5)
-        print("\r\033[K", end="", flush=True)  # Clear last progress line remnant
+        t_anim.join(timeout=2)
+
+        elapsed = _time.time() - start
+        mins, secs = divmod(int(elapsed), 60)
+
+        # Final status line
+        if process.returncode == 0:
+            sys.stdout.write(f"\r{prefix}\033[1;32m{'█' * 30}\033[0m \033[0;90m[{mins:02d}:{secs:02d}]\033[0m \033[1;32mComplete!\033[0m\033[K\n")
+        else:
+            sys.stdout.write(f"\r{prefix}\033[1;31m{'━' * 30}\033[0m \033[0;90m[{mins:02d}:{secs:02d}]\033[0m \033[1;31mFailed\033[0m\033[K\n")
+        sys.stdout.flush()
 
         return process.returncode, "\n".join(full_output)
 
@@ -299,14 +349,12 @@ def _install_linux(tool_name):
     """Install a tool on Linux via apt with live progress."""
     pkg = APT_PACKAGE_MAP.get(tool_name, tool_name)
     print(f"  \033[1;33m[⚠]\033[0m {tool_name} not found. Installing: \033[1;36msudo apt install {pkg}\033[0m")
-    print(f"  \033[0;90m{'─' * 55}\033[0m")
-    rc, out = run_command_live(f"sudo apt-get install -y {pkg}", timeout=120, prefix="    \033[0;36m│\033[0m ")
-    print(f"  \033[0;90m{'─' * 55}\033[0m")
+    rc, out = run_command_live(f"sudo apt-get install -y {pkg}", timeout=120, prefix="    ")
     if rc == 0:
         print(f"  \033[1;32m[✓]\033[0m {tool_name} installed successfully!")
         return True
     # Fallback without sudo
-    rc, out = run_command_live(f"apt-get install -y {pkg}", timeout=120, prefix="    \033[0;36m│\033[0m ")
+    rc, out = run_command_live(f"apt-get install -y {pkg}", timeout=120, prefix="    ")
     if rc == 0:
         print(f"  \033[1;32m[✓]\033[0m {tool_name} installed successfully!")
         return True
@@ -334,12 +382,10 @@ def _install_windows(tool_name):
     # Method 1: winget
     if winget_id and _has_package_manager("winget"):
         print(f"  \033[1;36m[⟳]\033[0m Installing via winget: {winget_id}")
-        print(f"  \033[0;90m{'─' * 55}\033[0m")
         rc, out = run_command_live(
             f"winget install --id {winget_id} --accept-package-agreements --accept-source-agreements -e",
-            timeout=180, prefix="    \033[0;36m│\033[0m "
+            timeout=180, prefix="    "
         )
-        print(f"  \033[0;90m{'─' * 55}\033[0m")
         if rc == 0 or "successfully installed" in out.lower():
             print(f"  \033[1;32m[✓]\033[0m {tool_name} installed via winget!")
             return True
@@ -348,9 +394,7 @@ def _install_windows(tool_name):
     # Method 2: chocolatey
     if choco_name and _has_package_manager("choco"):
         print(f"  \033[1;36m[⟳]\033[0m Installing via choco: {choco_name}")
-        print(f"  \033[0;90m{'─' * 55}\033[0m")
-        rc, out = run_command_live(f"choco install {choco_name} -y", timeout=180, prefix="    \033[0;36m│\033[0m ")
-        print(f"  \033[0;90m{'─' * 55}\033[0m")
+        rc, out = run_command_live(f"choco install {choco_name} -y", timeout=180, prefix="    ")
         if rc == 0:
             print(f"  \033[1;32m[✓]\033[0m {tool_name} installed via choco!")
             return True
@@ -359,22 +403,18 @@ def _install_windows(tool_name):
     # Method 3: pip
     if pip_name:
         print(f"  \033[1;36m[⟳]\033[0m Installing via pip: {pip_name}")
-        print(f"  \033[0;90m{'─' * 55}\033[0m")
-        rc, out = run_command_live(f"python -m pip install {pip_name}", timeout=120, prefix="    \033[0;36m│\033[0m ")
-        print(f"  \033[0;90m{'─' * 55}\033[0m")
+        rc, out = run_command_live(f"python -m pip install {pip_name}", timeout=120, prefix="    ")
         if rc == 0:
             print(f"  \033[1;32m[✓]\033[0m {tool_name} installed via pip!")
             return True
-        print(f"  \033[1;33m[~]\033[0m pip failed...")
+        print(f"  \033[1;33m[~]\033[0m pip failed..."))
 
     # Method 4: git clone (for tools like nikto, enum4linux)
     if manual_url and "github.com" in manual_url:
         print(f"  \033[1;36m[⟳]\033[0m Cloning from GitHub: {manual_url}")
-        print(f"  \033[0;90m{'─' * 55}\033[0m")
         clone_dir = os.path.join(str(DATA_DIR), "tools_installed", tool_name)
         os.makedirs(os.path.dirname(clone_dir), exist_ok=True)
-        rc, out = run_command_live(f"git clone --progress {manual_url}.git \"{clone_dir}\"", timeout=120, prefix="    \033[0;36m│\033[0m ")
-        print(f"  \033[0;90m{'─' * 55}\033[0m")
+        rc, out = run_command_live(f"git clone --progress {manual_url}.git \"{clone_dir}\"", timeout=120, prefix="    ")
         if rc == 0:
             print(f"  \033[1;32m[✓]\033[0m {tool_name} cloned to: {clone_dir}")
             print(f"  \033[1;36m[i]\033[0m You may need to add it to PATH or run from that directory.")
