@@ -37,13 +37,33 @@ def auto_hackathon():
     if os.name == "nt":
         print_status(f"{C.Y}Windows detected — installing tools via winget/choco/pip{C.RST}", "info")
 
+    # Check which tools are missing first
     required = {"nmap": False, "nikto": False, "searchsploit": False, "hydra": False}
+    missing = []
     for tool in required:
         print_status(f"Checking {tool}...", "scan")
-        required[tool] = auto_install_tool(tool)
-        s = "success" if required[tool] else "error"
-        ic = "✓" if required[tool] else "✗"
-        print_status(f"{tool}: {ic}", s)
+        from modules.utils import check_tool_installed
+        if check_tool_installed(tool):
+            required[tool] = True
+            print_status(f"{tool}: ✓", "success")
+        else:
+            missing.append(tool)
+            print_status(f"{tool}: ✗ (not installed)", "warning")
+
+    # Ask permission ONCE for all missing tools
+    user_approved = False
+    if missing:
+        print()
+        print_status(f"Missing tools: {C.W}{', '.join(missing)}{C.RST}", "warning")
+        resp = input(f"\n  {C.Y}[?]{C.RST} Allow CLAN NXT to install all missing tools? {C.GR}(y/n):{C.RST} ").strip().lower()
+        user_approved = resp in ("y", "yes")
+
+        for tool in missing:
+            if user_approved:
+                required[tool] = auto_install_tool(tool, approved=True)
+            s = "success" if required[tool] else "error"
+            ic = "✓" if required[tool] else "✗"
+            print_status(f"{tool}: {ic}", s)
 
     if not required["nmap"]:
         print_status("nmap is required and could not be installed.", "error")

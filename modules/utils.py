@@ -362,7 +362,7 @@ def _install_linux(tool_name):
     return False
 
 
-def _install_windows(tool_name):
+def _install_windows(tool_name, approved=False):
     """Install a tool on Windows via winget → choco → pip fallback chain."""
     info = WIN_PACKAGE_MAP.get(tool_name)
     if not info:
@@ -371,17 +371,20 @@ def _install_windows(tool_name):
 
     winget_id, choco_name, pip_name, manual_url = info
 
-    # Ask user permission
-    print(f"\n  \033[1;33m[?]\033[0m {tool_name} is not installed.")
-    resp = input(f"  \033[1;33m[?]\033[0m Allow CLAN NXT to install it? (y/n): ").strip().lower()
-    if resp not in ("y", "yes"):
-        if manual_url:
-            print(f"  \033[1;36m[i]\033[0m Install manually: {manual_url}\033[0m")
-        return False
+    # If not pre-approved, ask permission
+    if not approved:
+        print(f"\n  \033[1;33m[?]\033[0m {tool_name} is not installed.")
+        resp = input(f"  \033[1;33m[?]\033[0m Allow CLAN NXT to install it? (y/n): ").strip().lower()
+        if resp not in ("y", "yes"):
+            if manual_url:
+                print(f"  \033[1;36m[i]\033[0m Install manually: {manual_url}\033[0m")
+            return False
+
+    print(f"  \033[1;36m[⟳]\033[0m Installing {tool_name}...")
 
     # Method 1: winget
     if winget_id and _has_package_manager("winget"):
-        print(f"  \033[1;36m[⟳]\033[0m Installing via winget: {winget_id}")
+        print(f"  \033[0;90m   → trying winget ({winget_id})\033[0m")
         rc, out = run_command_live(
             f"winget install --id {winget_id} --accept-package-agreements --accept-source-agreements -e",
             timeout=180, prefix="    "
@@ -389,35 +392,33 @@ def _install_windows(tool_name):
         if rc == 0 or "successfully installed" in out.lower():
             print(f"  \033[1;32m[✓]\033[0m {tool_name} installed via winget!")
             return True
-        print(f"  \033[1;33m[~]\033[0m winget failed, trying next method...")
 
     # Method 2: chocolatey
     if choco_name and _has_package_manager("choco"):
-        print(f"  \033[1;36m[⟳]\033[0m Installing via choco: {choco_name}")
+        print(f"  \033[0;90m   → trying choco ({choco_name})\033[0m")
         rc, out = run_command_live(f"choco install {choco_name} -y", timeout=180, prefix="    ")
         if rc == 0:
             print(f"  \033[1;32m[✓]\033[0m {tool_name} installed via choco!")
             return True
-        print(f"  \033[1;33m[~]\033[0m choco failed, trying next method...")
 
     # Method 3: pip
     if pip_name:
-        print(f"  \033[1;36m[⟳]\033[0m Installing via pip: {pip_name}")
+        print(f"  \033[0;90m   → trying pip ({pip_name})\033[0m")
         rc, out = run_command_live(f"python -m pip install {pip_name}", timeout=120, prefix="    ")
         if rc == 0:
             print(f"  \033[1;32m[✓]\033[0m {tool_name} installed via pip!")
             return True
-        print(f"  \033[1;33m[~]\033[0m pip failed...")
 
-    # Method 4: git clone (for tools like nikto, enum4linux)
-    if manual_url and "github.com" in manual_url:
-        print(f"  \033[1;36m[⟳]\033[0m Cloning from GitHub: {manual_url}")
+    # Method 4: git clone
+    if manual_url and ("github.com" in manual_url or "gitlab.com" in manual_url):
+        print(f"  \033[0;90m   → trying git clone\033[0m")
         clone_dir = os.path.join(str(DATA_DIR), "tools_installed", tool_name)
         os.makedirs(os.path.dirname(clone_dir), exist_ok=True)
-        rc, out = run_command_live(f"git clone --progress {manual_url}.git \"{clone_dir}\"", timeout=120, prefix="    ")
+        # Don't double-append .git if already there
+        clone_url = manual_url if manual_url.endswith(".git") else f"{manual_url}.git"
+        rc, out = run_command_live(f"git clone --progress \"{clone_url}\" \"{clone_dir}\"", timeout=120, prefix="    ")
         if rc == 0:
             print(f"  \033[1;32m[✓]\033[0m {tool_name} cloned to: {clone_dir}")
-            print(f"  \033[1;36m[i]\033[0m You may need to add it to PATH or run from that directory.")
             return True
 
     # All methods failed
@@ -429,17 +430,17 @@ def _install_windows(tool_name):
     return False
 
 
-def auto_install_tool(tool_name):
+def auto_install_tool(tool_name, approved=False):
     """
     Cross-platform tool installer.
-    Checks if installed → if not, installs via apt (Linux) or winget/choco/pip (Windows).
+    If approved=True, skips the permission prompt (already granted).
     Returns True if the tool is available after the check/install.
     """
     if check_tool_installed(tool_name):
         return True
 
     if os.name == "nt":
-        return _install_windows(tool_name)
+        return _install_windows(tool_name, approved=approved)
     else:
         return _install_linux(tool_name)
 
