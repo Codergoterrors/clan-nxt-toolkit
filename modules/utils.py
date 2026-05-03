@@ -202,39 +202,47 @@ def run_command_live(cmd, timeout=300, shell=True, prefix="    ", label="Install
             pass
 
     def _progress_animator():
-        """Animate a progress bar while the process runs."""
-        bar_chars = "━"
+        """Animate a progress bar on a SINGLE line (never wraps)."""
         pulse_chars = "░▒▓█▓▒░"
         start = _time.time()
-        width = 30
+        # Get terminal width to prevent line wrapping
+        try:
+            term_width = os.get_terminal_size().columns
+        except Exception:
+            term_width = 80
+        bar_width = 20  # compact bar
         i = 0
 
         while not done_event.is_set():
             elapsed = _time.time() - start
             mins, secs = divmod(int(elapsed), 60)
+            time_str = f"[{mins:02d}:{secs:02d}]"
 
-            # Build pulsing progress bar
-            pos = i % (width + len(pulse_chars))
+            # Build pulsing bar
+            pos = i % (bar_width + len(pulse_chars))
             bar = ""
-            for j in range(width):
-                pulse_idx = pos - j
-                if 0 <= pulse_idx < len(pulse_chars):
-                    bar += pulse_chars[pulse_idx]
+            for j in range(bar_width):
+                pidx = pos - j
+                if 0 <= pidx < len(pulse_chars):
+                    bar += pulse_chars[pidx]
                 else:
                     bar += "░"
 
-            # Get current status
+            # Get and sanitize status (strip ALL newlines, tabs, special chars)
             with _lock:
-                status = latest_status[0]
+                raw = latest_status[0]
+            status = re.sub(r'[\r\n\t\x1b\[\]]+', ' ', raw).strip()
 
-            # Truncate status to fit terminal
-            max_status_len = 50
-            if len(status) > max_status_len:
-                status = status[:max_status_len - 3] + "..."
+            # Calculate available space for status text
+            # prefix + bar(20) + time(8) + spacing(6) = ~34 + prefix_len
+            visible_prefix = re.sub(r'\033\[[0-9;]*m', '', prefix)  # strip ANSI
+            used = len(visible_prefix) + bar_width + len(time_str) + 6
+            max_status = max(10, term_width - used - 2)
+            if len(status) > max_status:
+                status = status[:max_status - 3] + "..."
 
-            # Print animated line
-            time_str = f"{mins:02d}:{secs:02d}"
-            line = f"\r{prefix}\033[1;31m{bar}\033[0m \033[0;90m[{time_str}]\033[0m \033[0;36m{status}\033[0m\033[K"
+            # Write single line with \r (carriage return) to overwrite
+            line = f"\r{prefix}\033[1;31m{bar}\033[0m \033[0;90m{time_str}\033[0m \033[0;36m{status}\033[0m\033[K"
             sys.stdout.write(line)
             sys.stdout.flush()
 
@@ -266,7 +274,7 @@ def run_command_live(cmd, timeout=300, shell=True, prefix="    ", label="Install
             if _time.time() - start > timeout:
                 done_event.set()
                 process.kill()
-                sys.stdout.write(f"\r{prefix}\033[1;31m{'━' * 30}\033[0m \033[1;33mTIMED OUT\033[0m\033[K\n")
+                sys.stdout.write(f"\r{prefix}\033[1;31m{'━' * 20}\033[0m \033[1;33mTIMED OUT\033[0m\033[K\n")
                 sys.stdout.flush()
                 return -1, "\n".join(full_output)
             _time.sleep(0.1)
@@ -280,11 +288,11 @@ def run_command_live(cmd, timeout=300, shell=True, prefix="    ", label="Install
         elapsed = _time.time() - start
         mins, secs = divmod(int(elapsed), 60)
 
-        # Final status line
+        # Final status line (same compact width)
         if process.returncode == 0:
-            sys.stdout.write(f"\r{prefix}\033[1;32m{'█' * 30}\033[0m \033[0;90m[{mins:02d}:{secs:02d}]\033[0m \033[1;32mComplete!\033[0m\033[K\n")
+            sys.stdout.write(f"\r{prefix}\033[1;32m{'█' * 20}\033[0m \033[0;90m[{mins:02d}:{secs:02d}]\033[0m \033[1;32mComplete!\033[0m\033[K\n")
         else:
-            sys.stdout.write(f"\r{prefix}\033[1;31m{'━' * 30}\033[0m \033[0;90m[{mins:02d}:{secs:02d}]\033[0m \033[1;31mFailed\033[0m\033[K\n")
+            sys.stdout.write(f"\r{prefix}\033[1;31m{'━' * 20}\033[0m \033[0;90m[{mins:02d}:{secs:02d}]\033[0m \033[1;31mFailed\033[0m\033[K\n")
         sys.stdout.flush()
 
         return process.returncode, "\n".join(full_output)
