@@ -393,6 +393,7 @@ def hackathon_mode():
 
         print_menu_option("1", "Automated Mode", "Full auto recon → scan → exploit pipeline")
         print_menu_option("2", "Manual Mode", "Guided attack suggestions based on target")
+        print_menu_option("3", "🤖 Agent Mode", "Autonomous hacking agent — full auto hack pipeline")
         print_menu_option("0", "Back to Main Menu")
 
         choice = get_input("hackathon")
@@ -404,6 +405,12 @@ def hackathon_mode():
             get_input("enter")
         elif choice == "2":
             manual_hackathon()
+            get_input("enter")
+        elif choice == "3":
+            if not confirm_action("Launch autonomous hacking agent? Ensure you have FULL authorization."):
+                continue
+            from modules.agent import run_agent
+            run_agent()
             get_input("enter")
         elif choice in ("0", "back", "exit", "quit"):
             break
