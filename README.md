@@ -128,4 +128,4 @@ The developers assume **no liability** for misuse of this tool.
 
 ## 🏷️ Credits
 
-**#CLAN NXT** | Built with Python 🐍 | Powered by Rich, Requests, BeautifulSoup, Nmap
+**#CLAN NXT** | Built with Python 🐍 | Powered by Rich, Requests, BeautifulSoup, Nmap 
